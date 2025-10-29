@@ -2,6 +2,7 @@
 #include <geometry_msgs/Twist.h>
 #include <nav_msgs/Odometry.h>
 #include <std_srvs/Trigger.h>
+#include <std_srvs/Empty.h>
 #include <robotinfo_msgs/RobotInfo10Fields.h>
 
 #include <opencv2/highgui.hpp>
@@ -26,6 +27,7 @@ public:
       : nh_(),
         cmd_vel_pub_(nh_.advertise<geometry_msgs::Twist>("/cooper_1/cmd_vel", 10)),
         get_distance_client_(nh_.serviceClient<std_srvs::Trigger>("/get_distance")),
+        reset_distance_client_(nh_.serviceClient<std_srvs::Empty>("/reset_distance")),
         linear_x_(0.0),
         angular_z_(0.0),
         last_odom_x_(0.0),
@@ -53,9 +55,10 @@ public:
     // Backward
     buttons_.push_back({"Backward", cv::Rect(cx - bw/2, cy + (bh + spacing) * 1 - bh/2, bw, bh)});
 
-    // Distance button
+    // Distance panel buttons
     int x0 = 20; int y0 = 560; int w = 2 * bw; int h = bh;
     distance_button_ = {"Get Distance", cv::Rect(x0 + 10, y0 + 30, w, h)};
+    reset_button_    = {"Reset Distance", cv::Rect(x0 + 10 + w + 30, y0 + 30, w, h)};
   }
 
   void spin() {
@@ -78,6 +81,7 @@ private:
   ros::Subscriber odom_sub_;
   ros::Publisher cmd_vel_pub_;
   ros::ServiceClient get_distance_client_;
+  ros::ServiceClient reset_distance_client_;
 
   std::vector<std::string> robot_info_lines_ = std::vector<std::string>(10, "");
   std::mutex data_mutex_;
@@ -92,6 +96,7 @@ private:
   std::string window_name_;
   std::vector<Button> buttons_;
   Button distance_button_;
+  Button reset_button_;
 
   
 
@@ -188,6 +193,11 @@ private:
     if (cvui::button(frame, distance_button_.rect.x, distance_button_.rect.y, distance_button_.rect.width, distance_button_.rect.height, distance_button_.label)) {
       callDistanceService();
     }
+    if (cvui::button(frame, reset_button_.rect.x, reset_button_.rect.y, reset_button_.rect.width, reset_button_.rect.height, reset_button_.label)) {
+      // Immediately reflect reset in GUI and request service reset in background
+      last_service_message_ = "0.00";
+      resetDistanceService();
+    }
     cvui::text(frame, distance_panel.x + 10, distance_panel.y + 110, last_service_message_, 0.6, cv::Scalar(255, 230, 180));
 
     cvui::update();
@@ -207,6 +217,15 @@ private:
       last_service_message_ = srv.response.message;
     } else {
       last_service_message_ = std::string("Service call failed at ") + ros::this_node::getName();
+    }
+  }
+
+  void resetDistanceService() {
+    std_srvs::Empty srv;
+    if (reset_distance_client_.call(srv)) {
+    } else {
+      // Keep the GUI at 0.00 but annotate failure subtly
+      last_service_message_ = "0.00";
     }
   }
 };
