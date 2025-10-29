@@ -6,6 +6,7 @@
 
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
+#include "cvui/cvui.h"
 
 #include <string>
 #include <vector>
@@ -35,9 +36,9 @@ public:
     robot_info_sub_ = nh_.subscribe("robot_info", 10, &RobotGuiNode::robotInfoCb, this);
     odom_sub_ = nh_.subscribe("/cooper_1/odom", 10, &RobotGuiNode::odomCb, this);
 
-    // Prepare UI window and mouse handling
+    // Prepare UI with CVUI
     cv::namedWindow(window_name_);
-    cv::setMouseCallback(window_name_, &RobotGuiNode::onMouseStatic, this);
+    cvui::init(window_name_);
 
     // Layout buttons similar to the reference mockup
     // Center group around cx, cy
@@ -93,53 +94,7 @@ private:
   std::vector<Button> buttons_;
   Button distance_button_;
 
-  // UI state for mouse
-  bool mouse_down_ = false;
-  cv::Point mouse_pos_ = {0, 0};
-
-  static void onMouseStatic(int event, int x, int y, int flags, void* userdata) {
-    RobotGuiNode* self = static_cast<RobotGuiNode*>(userdata);
-    if (self) self->onMouse(event, x, y, flags);
-  }
-
-  void onMouse(int event, int x, int y, int /*flags*/) {
-    mouse_pos_ = {x, y};
-    if (event == cv::EVENT_LBUTTONDOWN) {
-      mouse_down_ = true;
-    } else if (event == cv::EVENT_LBUTTONUP) {
-      mouse_down_ = false;
-      handleClick(x, y);
-    }
-  }
-
-  void handleClick(int x, int y) {
-    const double lin_step = 0.05;    // m/s per click
-    const double ang_step = 0.10;    // rad/s per click
-    const double lin_max = 1.0;
-    const double ang_max = 2.0;
-
-    for (const auto& b : buttons_) {
-      if (b.rect.contains({x, y})) {
-        if (b.label == "Forward") {
-          linear_x_ = std::min(lin_max, linear_x_ + lin_step);
-        } else if (b.label == "Backward") {
-          linear_x_ = std::max(-lin_max, linear_x_ - lin_step);
-        } else if (b.label == "Left") {
-          angular_z_ = std::min(ang_max, angular_z_ + ang_step);
-        } else if (b.label == "Right") {
-          angular_z_ = std::max(-ang_max, angular_z_ - ang_step);
-        } else if (b.label == "Stop") {
-          linear_x_ = 0.0;
-          angular_z_ = 0.0;
-        }
-        return;
-      }
-    }
-
-    if (distance_button_.rect.contains({x, y})) {
-      callDistanceService();
-    }
-  }
+  
 
   void robotInfoCb(const robotinfo_msgs::RobotInfo10Fields::ConstPtr& msg) {
     std::lock_guard<std::mutex> lk(data_mutex_);
@@ -162,28 +117,12 @@ private:
     last_odom_z_ = msg->pose.pose.position.z;
   }
 
-  void drawPanel(cv::Mat& frame, const cv::Rect& rect, const std::string& title) {
-    cv::rectangle(frame, rect, cv::Scalar(200, 200, 200), 1);
-    cv::putText(frame, title, {rect.x + 8, rect.y + 20}, cv::FONT_HERSHEY_SIMPLEX, 0.6,
-                cv::Scalar(0, 255, 255), 1, cv::LINE_AA);
-  }
-
-  void drawButton(cv::Mat& frame, const Button& b) {
-    cv::Scalar color = b.rect.contains(mouse_pos_) ? cv::Scalar(90, 90, 90) : cv::Scalar(60, 60, 60);
-    cv::rectangle(frame, b.rect, color, cv::FILLED);
-    cv::rectangle(frame, b.rect, cv::Scalar(200, 200, 200), 1);
-    int baseline = 0;
-    cv::Size tsz = cv::getTextSize(b.label, cv::FONT_HERSHEY_SIMPLEX, 0.6, 1, &baseline);
-    cv::Point textorg(b.rect.x + (b.rect.width - tsz.width) / 2, b.rect.y + (b.rect.height + tsz.height) / 2);
-    cv::putText(frame, b.label, textorg, cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(230, 230, 230), 1, cv::LINE_AA);
-  }
-
   void draw() {
     cv::Mat frame(600, 900, CV_8UC3, cv::Scalar(30, 30, 30));
 
     // General Info Area
     cv::Rect info_area(20, 20, 860, 180);
-    drawPanel(frame, info_area, "General Info (robot_info)");
+    cvui::window(frame, info_area.x, info_area.y, info_area.width, info_area.height, "Robot Info");
     int y = info_area.y + 40;
     std::vector<std::string> info_copy;
     {
@@ -192,52 +131,67 @@ private:
     }
     for (size_t i = 0; i < info_copy.size(); ++i) {
       if (info_copy[i].empty()) continue;
-      cv::putText(frame, info_copy[i], {info_area.x + 10, y}, cv::FONT_HERSHEY_SIMPLEX, 0.5,
-                  cv::Scalar(180, 220, 180), 1, cv::LINE_AA);
+      cvui::text(frame, info_area.x + 10, y, info_copy[i], 0.5, cv::Scalar(180, 220, 180));
       y += 20;
     }
 
     // Teleoperation Buttons
     cv::Rect teleop_panel(20, 200, 860, 120);
-    drawPanel(frame, teleop_panel, "Teleoperation");
-    for (const auto& b : buttons_) drawButton(frame, b);
+    cvui::window(frame, teleop_panel.x, teleop_panel.y, teleop_panel.width, teleop_panel.height, "Teleoperation");
+    const double lin_step = 0.05;    // m/s per click
+    const double ang_step = 0.10;    // rad/s per click
+    const double lin_max = 1.0;
+    const double ang_max = 2.0;
+    for (const auto& b : buttons_) {
+      if (cvui::button(frame, b.rect.x, b.rect.y, b.rect.width, b.rect.height, b.label)) {
+        if (b.label == "Forward") {
+          linear_x_ = std::min(lin_max, linear_x_ + lin_step);
+        } else if (b.label == "Backward") {
+          linear_x_ = std::max(-lin_max, linear_x_ - lin_step);
+        } else if (b.label == "Left") {
+          angular_z_ = std::min(ang_max, angular_z_ + ang_step);
+        } else if (b.label == "Right") {
+          angular_z_ = std::max(-ang_max, angular_z_ - ang_step);
+        } else if (b.label == "Stop") {
+          linear_x_ = 0.0;
+          angular_z_ = 0.0;
+        }
+      }
+    }
 
     // Current Velocities
     cv::Rect vel_panel(20, 340, 420, 100);
-    drawPanel(frame, vel_panel, "Current Velocities (/cooper_1/cmd_vel)");
+    cvui::window(frame, vel_panel.x, vel_panel.y, vel_panel.width, vel_panel.height, "Current Velocities");
     char buf[128];
     snprintf(buf, sizeof(buf), "Linear X: %+0.2f m/s", linear_x_);
-    cv::putText(frame, buf, {vel_panel.x + 10, vel_panel.y + 45}, cv::FONT_HERSHEY_SIMPLEX, 0.6,
-                cv::Scalar(200, 200, 255), 1, cv::LINE_AA);
+    cvui::text(frame, vel_panel.x + 10, vel_panel.y + 45, buf, 0.6, cv::Scalar(200, 200, 255));
     snprintf(buf, sizeof(buf), "Angular Z: %+0.2f rad/s", angular_z_);
-    cv::putText(frame, buf, {vel_panel.x + 10, vel_panel.y + 80}, cv::FONT_HERSHEY_SIMPLEX, 0.6,
-                cv::Scalar(200, 200, 255), 1, cv::LINE_AA);
+    cvui::text(frame, vel_panel.x + 10, vel_panel.y + 80, buf, 0.6, cv::Scalar(200, 200, 255));
 
     // Robot Position (Odometry based)
     cv::Rect odom_panel(460, 340, 420, 100);
-    drawPanel(frame, odom_panel, "Robot Position (/cooper_1/odom)");
+    cvui::window(frame, odom_panel.x, odom_panel.y, odom_panel.width, odom_panel.height, "Robot Position");
     double ox, oy, oz;
     {
       std::lock_guard<std::mutex> lk(data_mutex_);
       ox = last_odom_x_; oy = last_odom_y_; oz = last_odom_z_;
     }
     snprintf(buf, sizeof(buf), "x: %.3f", ox);
-    cv::putText(frame, buf, {odom_panel.x + 10, odom_panel.y + 45}, cv::FONT_HERSHEY_SIMPLEX, 0.6,
-                cv::Scalar(180, 255, 180), 1, cv::LINE_AA);
+    cvui::text(frame, odom_panel.x + 10, odom_panel.y + 45, buf, 0.6, cv::Scalar(180, 255, 180));
     snprintf(buf, sizeof(buf), "y: %.3f", oy);
-    cv::putText(frame, buf, {odom_panel.x + 150, odom_panel.y + 45}, cv::FONT_HERSHEY_SIMPLEX, 0.6,
-                cv::Scalar(180, 255, 180), 1, cv::LINE_AA);
+    cvui::text(frame, odom_panel.x + 150, odom_panel.y + 45, buf, 0.6, cv::Scalar(180, 255, 180));
     snprintf(buf, sizeof(buf), "z: %.3f", oz);
-    cv::putText(frame, buf, {odom_panel.x + 290, odom_panel.y + 45}, cv::FONT_HERSHEY_SIMPLEX, 0.6,
-                cv::Scalar(180, 255, 180), 1, cv::LINE_AA);
+    cvui::text(frame, odom_panel.x + 290, odom_panel.y + 45, buf, 0.6, cv::Scalar(180, 255, 180));
 
     // Distance Service
     cv::Rect distance_panel(20, 460, 860, 100);
-    drawPanel(frame, distance_panel, "Distance Travelled Service (/get_distance)");
-    drawButton(frame, distance_button_);
-    cv::putText(frame, last_service_message_, {distance_panel.x + 10, distance_panel.y + 90},
-                cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 230, 180), 1, cv::LINE_AA);
+    cvui::window(frame, distance_panel.x, distance_panel.y, distance_panel.width, distance_panel.height, "Distance Travelled (meters)");
+    if (cvui::button(frame, distance_button_.rect.x, distance_button_.rect.y, distance_button_.rect.width, distance_button_.rect.height, distance_button_.label)) {
+      callDistanceService();
+    }
+    cvui::text(frame, distance_panel.x + 10, distance_panel.y + 90, last_service_message_, 0.6, cv::Scalar(255, 230, 180));
 
+    cvui::update();
     cv::imshow(window_name_, frame);
   }
 
