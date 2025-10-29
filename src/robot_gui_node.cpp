@@ -17,7 +17,7 @@
 
 struct Button {
   std::string label;
-  cv::Rect rect; // x, y, w, h
+  cv::Rect rect;
 };
 
 class RobotGuiNode {
@@ -36,15 +36,14 @@ public:
     robot_info_sub_ = nh_.subscribe("robot_info", 10, &RobotGuiNode::robotInfoCb, this);
     odom_sub_ = nh_.subscribe("/cooper_1/odom", 10, &RobotGuiNode::odomCb, this);
 
-    // Prepare UI with CVUI
+    // CVUI
     cv::namedWindow(window_name_);
+    cv::resizeWindow(window_name_, 900, 720);
     cvui::init(window_name_);
 
-    // Layout buttons similar to the reference mockup
-    // Center group around cx, cy
     int cx = 450; // center x of the teleop cluster
-    int cy = 280; // center y of the teleop cluster
-    int bw = 140, bh = 50, spacing = 15;
+    int cy = 340; // center y of the teleop cluster
+    int bw = 140, bh = 50, spacing = 5;
     // Forward
     buttons_.push_back({"Forward", cv::Rect(cx - bw/2, cy - (bh + spacing) * 1 - bh/2, bw, bh)});
     // Middle row: Left, Stop, Right
@@ -55,8 +54,8 @@ public:
     buttons_.push_back({"Backward", cv::Rect(cx - bw/2, cy + (bh + spacing) * 1 - bh/2, bw, bh)});
 
     // Distance button
-    int x0 = 20; int y0 = 460; int w = 2 * bw; int h = bh;
-    distance_button_ = {"Get Distance", cv::Rect(x0, y0 + 10, w, h)};
+    int x0 = 20; int y0 = 560; int w = 2 * bw; int h = bh;
+    distance_button_ = {"Get Distance", cv::Rect(x0 + 10, y0 + 30, w, h)};
   }
 
   void spin() {
@@ -118,11 +117,11 @@ private:
   }
 
   void draw() {
-    cv::Mat frame(600, 900, CV_8UC3, cv::Scalar(30, 30, 30));
+    cv::Mat frame(720, 900, CV_8UC3, cv::Scalar(30, 30, 30));
 
-    // General Info Area
-    cv::Rect info_area(20, 20, 860, 180);
-    cvui::window(frame, info_area.x, info_area.y, info_area.width, info_area.height, "Robot Info");
+    // General Info
+    cv::Rect info_area(20, 20, 860, 200);
+    cvui::window(frame, info_area.x, info_area.y, info_area.width, info_area.height, "General Info");
     int y = info_area.y + 40;
     std::vector<std::string> info_copy;
     {
@@ -135,8 +134,8 @@ private:
       y += 20;
     }
 
-    // Teleoperation Buttons
-    cv::Rect teleop_panel(20, 200, 860, 120);
+    // Teleoperation
+    cv::Rect teleop_panel(20, 220, 860, 220);
     cvui::window(frame, teleop_panel.x, teleop_panel.y, teleop_panel.width, teleop_panel.height, "Teleoperation");
     const double lin_step = 0.05;    // m/s per click
     const double ang_step = 0.10;    // rad/s per click
@@ -160,7 +159,7 @@ private:
     }
 
     // Current Velocities
-    cv::Rect vel_panel(20, 340, 420, 100);
+    cv::Rect vel_panel(20, 440, 420, 100);
     cvui::window(frame, vel_panel.x, vel_panel.y, vel_panel.width, vel_panel.height, "Current Velocities");
     char buf[128];
     snprintf(buf, sizeof(buf), "Linear X: %+0.2f m/s", linear_x_);
@@ -168,8 +167,8 @@ private:
     snprintf(buf, sizeof(buf), "Angular Z: %+0.2f rad/s", angular_z_);
     cvui::text(frame, vel_panel.x + 10, vel_panel.y + 80, buf, 0.6, cv::Scalar(200, 200, 255));
 
-    // Robot Position (Odometry based)
-    cv::Rect odom_panel(460, 340, 420, 100);
+    // Robot Position
+    cv::Rect odom_panel(460, 440, 420, 100);
     cvui::window(frame, odom_panel.x, odom_panel.y, odom_panel.width, odom_panel.height, "Robot Position");
     double ox, oy, oz;
     {
@@ -184,12 +183,12 @@ private:
     cvui::text(frame, odom_panel.x + 290, odom_panel.y + 45, buf, 0.6, cv::Scalar(180, 255, 180));
 
     // Distance Service
-    cv::Rect distance_panel(20, 460, 860, 100);
+    cv::Rect distance_panel(20, 560, 860, 140);
     cvui::window(frame, distance_panel.x, distance_panel.y, distance_panel.width, distance_panel.height, "Distance Travelled (meters)");
     if (cvui::button(frame, distance_button_.rect.x, distance_button_.rect.y, distance_button_.rect.width, distance_button_.rect.height, distance_button_.label)) {
       callDistanceService();
     }
-    cvui::text(frame, distance_panel.x + 10, distance_panel.y + 90, last_service_message_, 0.6, cv::Scalar(255, 230, 180));
+    cvui::text(frame, distance_panel.x + 10, distance_panel.y + 110, last_service_message_, 0.6, cv::Scalar(255, 230, 180));
 
     cvui::update();
     cv::imshow(window_name_, frame);
@@ -213,10 +212,8 @@ private:
 };
 
 int main(int argc, char** argv) {
-  // Work around X11 MIT-SHM errors on remote/virtual displays
-  // If using GTK-based HighGUI, disabling shared memory avoids BadAccess errors.
-  setenv("GDK_DISABLE_XSHM", "1", 0);    // do not override if user set it
-  // If OpenCV was built with Qt HighGUI, this helps too.
+  // Troubleshooting X11 errors on remote/virtual displays
+  setenv("GDK_DISABLE_XSHM", "1", 0);
   setenv("QT_X11_NO_MITSHM", "1", 0);
   ros::init(argc, argv, "robot_gui_node");
   RobotGuiNode gui;
